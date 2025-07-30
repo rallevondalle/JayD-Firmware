@@ -46,15 +46,25 @@ namespace SongList {
 		void checkSD();
 
 		void searchDirectories(File dir);
+		
+		bool loadSongIndex();
+		void createSongIndex();
+		bool indexExists();
+		bool indexNeedsUpdate();
 
 		void encTwoTop() override;
 		bool waiting = false;
 		bool insertedSD = true;
 		bool empty = true;
+		bool scanning = false;
+		int scanProgress = 0;
+		int totalFiles = 0;
 
 		uint32_t prevSDCheck = 0;
+		uint32_t lastIndexCheck = 0;
 
 		static const uint16_t checkInterval = 500;
+		static const char* indexFileName;
 	};
 }
 #endif //JAYD_FIRMWARE_SONGLIST_H

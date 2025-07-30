@@ -8,6 +8,7 @@
 #include "../../Fonts.h"
 
 SongList::SongList* SongList::SongList::instance = nullptr;
+const char* SongList::SongList::indexFileName = "/.jayd_song_index";
 
 SongList::SongList::SongList(Display& display) : Context(display){
 	instance = this;
@@ -55,7 +56,24 @@ void SongList::SongList::checkSD(){
 		return;
 	}
 
-	searchDirectories(root);
+	if(loadSongIndex()){
+		Serial.printf("Loaded %d songs from index\n", songs.size());
+	}else{
+		Serial.println("Index not found or outdated, scanning SD card...");
+		scanning = true;
+		scanProgress = 0;
+		totalFiles = 0;
+		draw();
+		screen.commit();
+		searchDirectories(root);
+		scanning = false;
+		Serial.printf("Scan complete: found %d songs\n", songs.size());
+		draw();
+		screen.commit();
+		if(!songs.empty()){
+			createSongIndex();
+		}
+	}
 	root.close();
 	empty = songs.empty();
 
@@ -75,21 +93,33 @@ void SongList::SongList::searchDirectories(File dir){
 
 	File f;
 	while(f = dir.openNextFile()){
+		totalFiles++;
+		if(totalFiles % 10 == 0 && scanning){
+			draw();
+			screen.commit();
+		}
+		
 		if(f.isDirectory()){
+			String dirName = f.name();
+			Serial.printf("Scanning directory: %s\n", dirName.c_str());
 			searchDirectories(f);
 			f.close();
 			continue;
 		}
 
 		String name = f.name();
+		String fullPath = name;
+		Serial.printf("Checking file: %s\n", fullPath.c_str());
 		name.toLowerCase();
 		if(!name.endsWith(".aac") || name[name.lastIndexOf('/') + 1] == '.'){
 			f.close();
 			continue;
 		}
 
-		songs.push_back(new ListItem(list, f.name()));
+		Serial.printf("Found AAC file: %s\n", fullPath.c_str());
+		songs.push_back(new ListItem(list, fullPath));
 		list->addChild(songs.back());
+		scanProgress++;
 
 		f.close();
 	}
@@ -112,10 +142,12 @@ void SongList::SongList::start(){
 
 		instance->songs[instance->selectedElement]->setSelected(false);
 		instance->selectedElement += value;
+		
+		// Circular navigation - wrap around at both ends
 		if(instance->selectedElement < 0){
-			instance->selectedElement = 0;
-		}else if(instance->selectedElement >= instance->songs.size()){
 			instance->selectedElement = instance->songs.size() - 1;
+		}else if(instance->selectedElement >= instance->songs.size()){
+			instance->selectedElement = 0;
 		}
 
 		instance->songs[instance->selectedElement]->setSelected(true);
@@ -189,10 +221,24 @@ void SongList::SongList::draw(){
 	canvas->drawIcon(backgroundBuffer, 0, 0, 160, 19, 1);
 
 	canvas->setTextDatum(BC_DATUM);
-	canvas->drawString("SD card", screen.getWidth()/2, 15);
+	String headerText = "SD card";
+	if(!empty && insertedSD){
+		headerText += " - " + String(songs.size()) + " songs";
+	}
+	canvas->drawString(headerText, screen.getWidth()/2, 15);
 
 	if(waiting){
 		canvas->drawString("Loading...", screen.getWidth()/2, 65);
+		canvas->setTextDatum(TL_DATUM);
+		return;
+	}
+	
+	if(scanning){
+		canvas->drawString("Scanning SD...", screen.getWidth()/2, 50);
+		String progress = String(scanProgress) + " songs found";
+		canvas->drawString(progress, screen.getWidth()/2, 70);
+		String fileCount = String(totalFiles) + " files checked";
+		canvas->drawString(fileCount, screen.getWidth()/2, 90);
 		canvas->setTextDatum(TL_DATUM);
 		return;
 	}
@@ -201,7 +247,9 @@ void SongList::SongList::draw(){
 		canvas->drawString("Not inserted!", screen.getWidth()/2, 65);
 		canvas->setTextDatum(TL_DATUM);
 	}else if(empty){
-		canvas->drawString("Empty!", screen.getWidth()/2, 65);
+		String debugMsg = String(totalFiles) + " files scanned";
+		canvas->drawString("No AAC files!", screen.getWidth()/2, 55);
+		canvas->drawString(debugMsg, screen.getWidth()/2, 75);
 		canvas->setTextDatum(TL_DATUM);
 	}
 }
@@ -242,6 +290,69 @@ void SongList::SongList::unpack(){
 	fs::File bgFile = CompressedFile::open(SPIFFS.open("/SongListBackground.raw.hs"), 10, 9);
 	bgFile.read(reinterpret_cast<uint8_t*>(backgroundBuffer), 160 * 128 * 2);
 	bgFile.close();
+}
+
+bool SongList::SongList::indexExists(){
+	File indexFile = SD.open(indexFileName);
+	bool exists = indexFile && !indexFile.isDirectory();
+	if(indexFile) indexFile.close();
+	return exists;
+}
+
+bool SongList::SongList::indexNeedsUpdate(){
+	if(!indexExists()) return true;
+	
+	File indexFile = SD.open(indexFileName);
+	if(!indexFile) return true;
+	
+	time_t indexTime = indexFile.getLastWrite();
+	indexFile.close();
+	
+	File root = SD.open("/");
+	if(!root) return true;
+	
+	time_t rootTime = root.getLastWrite();
+	root.close();
+	
+	return rootTime > indexTime;
+}
+
+bool SongList::SongList::loadSongIndex(){
+	if(indexNeedsUpdate()){
+		return false;
+	}
+	
+	File indexFile = SD.open(indexFileName, FILE_READ);
+	if(!indexFile){
+		return false;
+	}
+	
+	String line;
+	while(indexFile.available()){
+		line = indexFile.readStringUntil('\n');
+		line.trim();
+		if(line.length() > 0){
+			songs.push_back(new ListItem(list, line));
+			list->addChild(songs.back());
+		}
+	}
+	indexFile.close();
+	
+	return !songs.empty();
+}
+
+void SongList::SongList::createSongIndex(){
+	File indexFile = SD.open(indexFileName, FILE_WRITE);
+	if(!indexFile){
+		Serial.println("Failed to create song index file");
+		return;
+	}
+	
+	for(auto song : songs){
+		indexFile.println(song->getPath());
+	}
+	indexFile.close();
+	Serial.printf("Created song index with %d songs\n", songs.size());
 }
 
 void SongList::SongList::encTwoTop(){
