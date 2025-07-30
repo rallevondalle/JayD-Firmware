@@ -9,6 +9,7 @@
 #include "src/InputKeys.h"
 #include "src/HardwareTest.h"
 #include "src/Screens/IntroScreen/IntroScreen.h"
+#include "src/Screens/MixScreen/MixScreen.h"
 #include "src/Screens/InputTest/InputTest.h"
 
 bool checkJig(){
@@ -17,9 +18,11 @@ bool checkJig(){
 }
 
 void launch(){
-	Context* introScreen = new IntroScreen::IntroScreen(JayD.getDisplay());
-	introScreen->unpack();
-	introScreen->start();
+	// Skip intro screen - go directly to MixScreen
+	Serial.println("=== LAUNCHING MIXSCREEN DIRECTLY ===");
+	MixScreen::MixScreen* mixScreen = new MixScreen::MixScreen(JayD.getDisplay());
+	mixScreen->unpack();
+	mixScreen->start();
 }
 
 void setup(){

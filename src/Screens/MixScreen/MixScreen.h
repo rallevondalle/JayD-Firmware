@@ -88,10 +88,15 @@ namespace MixScreen {
 		
 		// Smart resume timing
 		uint32_t lastSmartSeekTime[2] = {0, 0}; // Track last seek time for each channel
+		
+		// Auto-resume after hot-swap
+		bool pendingAutoResume = false;
+		uint32_t autoResumeScheduledTime = 0;
 
 		void startBigVu();
 		void stopBigVu();
 		void hotSwapTrack(uint8_t deck, fs::File newFile);
+		void initializeDefaultEffects();
 
 		void potMove(uint8_t id, uint8_t value) override;
 

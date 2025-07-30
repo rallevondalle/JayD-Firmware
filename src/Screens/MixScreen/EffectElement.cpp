@@ -36,10 +36,17 @@ void MixScreen::EffectElement::setupGif(){
 void MixScreen::EffectElement::draw(){
 
 	if(selected){
+		// Currently being edited - show animated GIF
 		gif->nextFrame();
 		gif->push();
 	}else{
+		// Not being edited - show static icon
 		getSprite()->drawIcon(icon, !mirrored ? getTotalX() + 2 : getTotalX() + 58, getTotalY() + 22, 16, 16, 1, TFT_BLACK);
+		
+		// If effect is active (not NONE), draw a border to indicate it's active
+		if(effect != NONE){
+			getSprite()->drawRect(!mirrored ? getTotalX() + 1 : getTotalX() + 57, getTotalY() + 21, 18, 18, TFT_WHITE);
+		}
 	}
 
 

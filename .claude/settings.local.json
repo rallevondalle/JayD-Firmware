@@ -5,7 +5,9 @@
       "Bash(git add:*)",
       "Bash(git config:*)",
       "Bash(git commit:*)",
-      "Bash(arduino-cli compile:*)"
+      "Bash(arduino-cli compile:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }

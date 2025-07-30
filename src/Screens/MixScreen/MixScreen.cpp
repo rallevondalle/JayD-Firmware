@@ -440,7 +440,14 @@ void MixScreen::MixScreen::start(){
 	rightSongName->checkScrollUpdate();
 
 	for(int i = 0; i < 6; i++){
-		effectElements[i]->setType(NONE);
+		// Auto-select default effects: first slot = SPEED, second slot = HIGHPASS
+		if(i == 0 || i == 3){
+			effectElements[i]->setType(SPEED);  // First effect slot for both players
+		}else if(i == 1 || i == 4){
+			effectElements[i]->setType(HIGHPASS);  // Second effect slot for both players
+		}else{
+			effectElements[i]->setType(NONE);  // Third effect slot remains empty
+		}
 		effectElements[i]->setIntensity(0);
 	}
 
@@ -480,6 +487,13 @@ void MixScreen::MixScreen::start(){
 		}
 		
 		Serial.println("MixSystem ready");
+		
+		// Initialize default effects only on first startup, not during hot-swap
+		if(!justCompletedHotSwap){
+			initializeDefaultEffects();
+		}else{
+			Serial.println("Hot-swap detected - skipping effect initialization to preserve playback");
+		}
 	}
 
 	// Add listeners - handle the case where VU listeners might still be active
@@ -550,25 +564,15 @@ void MixScreen::MixScreen::draw(){
 	screen.getSprite()->fillRect(leftLayout->getTotalX(), leftLayout->getTotalY(), 79, 128, C_RGB(249, 93, 2));
 	screen.getSprite()->fillRect(rightLayout->getTotalX(), rightLayout->getTotalY(), 79, 128, C_RGB(3, 52, 135));
 	
-	// Draw selection indication
-	if(selectedBackgroundBuffer != nullptr){
-		// Use the background buffer if available
-		if(!selectedChannel){
-			screen.getSprite()->drawIcon(selectedBackgroundBuffer, screen.getTotalX(), screen.getTotalY(), 79, 128, 1, TFT_TRANSPARENT);
-		}else{
-			screen.getSprite()->drawIcon(selectedBackgroundBuffer, screen.getTotalX() + 81, screen.getTotalY(), 79, 128, 1, TFT_TRANSPARENT);
-		}
+	// Draw selection indication - always use white border style
+	if(!selectedChannel){
+		// Left channel selected - draw white border on left
+		screen.getSprite()->drawRect(leftLayout->getTotalX(), leftLayout->getTotalY(), 79, 128, TFT_WHITE);
+		screen.getSprite()->drawRect(leftLayout->getTotalX()+1, leftLayout->getTotalY()+1, 77, 126, TFT_WHITE);
 	}else{
-		// Fallback: draw a simple border to show selection
-		if(!selectedChannel){
-			// Left channel selected - draw white border on left
-			screen.getSprite()->drawRect(leftLayout->getTotalX(), leftLayout->getTotalY(), 79, 128, TFT_WHITE);
-			screen.getSprite()->drawRect(leftLayout->getTotalX()+1, leftLayout->getTotalY()+1, 77, 126, TFT_WHITE);
-		}else{
-			// Right channel selected - draw white border on right
-			screen.getSprite()->drawRect(rightLayout->getTotalX(), rightLayout->getTotalY(), 79, 128, TFT_WHITE);
-			screen.getSprite()->drawRect(rightLayout->getTotalX()+1, rightLayout->getTotalY()+1, 77, 126, TFT_WHITE);
-		}
+		// Right channel selected - draw white border on right
+		screen.getSprite()->drawRect(rightLayout->getTotalX(), rightLayout->getTotalY(), 79, 128, TFT_WHITE);
+		screen.getSprite()->drawRect(rightLayout->getTotalX()+1, rightLayout->getTotalY()+1, 77, 126, TFT_WHITE);
 	}
 
 	if(isRecording){
@@ -639,6 +643,33 @@ void MixScreen::MixScreen::buildUI(){
 }
 
 void MixScreen::MixScreen::loop(uint micros){
+	// Handle scheduled auto-resume after hot-swap
+	if(pendingAutoResume && millis() >= autoResumeScheduledTime){
+		if(system && f1 && f1.size() > 0 && !hotSwapInProgress){
+			Serial.println("Executing auto-resume: simulating play button press");
+			// Simulate user pressing play button on channel 0
+			// This goes through the same logic as btn(0) but without user input
+			if(system->isChannelPaused(0)){
+				// Use preserved position from seek bar (not system elapsed which is 0 after recreation)
+				uint32_t preservedPos = leftSeekBar->getCurrentDuration();
+				Serial.printf("Auto-resume: Using preserved position %u seconds\n", preservedPos);
+				
+				// Seek to preserved position first
+				if(preservedPos > 0){
+					system->seekChannel(0, preservedPos);
+					delay(100); // Let seek complete
+				}
+				
+				// Add extra delay before resume to prevent decode errors
+				delay(50);
+				system->resumeChannel(0);
+				leftSeekBar->setPlaying(true);
+				Serial.printf("Auto-resume completed: Channel 0 playing from position %u\n", preservedPos);
+			}
+		}
+		pendingAutoResume = false;
+	}
+	
 	if(system && seekTime != 0 && millis() - seekTime >= 100){
 		SongSeekBar* bar = seekChannel ? rightSeekBar : leftSeekBar;
 
@@ -955,6 +986,13 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		newFile.close();
 		return;
 	}
+	
+	if(!system){
+		Serial.println("ERROR: No MixSystem available for hot-swap");
+		newFile.close();
+		return;
+	}
+	
 	hotSwapInProgress = true;
 	
 	// Validate the new file first
@@ -1041,12 +1079,27 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		uint8_t rightVol = InputJayD::getInstance()->getPotValue(POT_R);
 		uint8_t mixVal = InputJayD::getInstance()->getPotValue(POT_MID);
 		
-		// Stop old system
-		Serial.println("Stopping old MixSystem...");
-		system->stop();
-		Serial.println("Deleting old MixSystem...");
-		delete system;
-		Serial.printf("Post-delete memory: heap=%u\n", ESP.getFreeHeap());
+		// Stop old system safely
+		if(system){
+			Serial.println("Stopping old MixSystem...");
+			
+			// Ensure all channels are fully stopped
+			system->pauseChannel(0);
+			system->pauseChannel(1);
+			delay(100); // Let channels stop completely
+			
+			system->stop();
+			delay(100); // Let system fully stop
+			
+			Serial.println("Deleting old MixSystem...");
+			MixSystem* oldSystem = system;
+			system = nullptr; // Clear pointer first to prevent use-after-free
+			
+			delete oldSystem;
+			Serial.printf("Post-delete memory: heap=%u\n", ESP.getFreeHeap());
+		}else{
+			Serial.println("No old MixSystem to delete");
+		}
 		
 		// POWER MANAGEMENT: Delay before creating new system
 		delay(100);
@@ -1082,8 +1135,8 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		// Start new system
 		system->start();
 		
-		// Add small delay to let system stabilize before state restoration
-		delay(100);
+		// Add longer delay to let system stabilize before state restoration
+		delay(200);
 		
 		Serial.println("System started, beginning state restoration...");
 		
@@ -1092,10 +1145,11 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		
 		Serial.println("Post-recreation: DJ-style hot-swap - clean state with position memory");
 		
-		// Always pause both channels for clean state (no decode errors)
+		// Always pause both channels for clean state (prevent decode errors)
 		system->pauseChannel(0);
+		delay(50);
 		system->pauseChannel(1);
-		delay(100); // Let system fully settle
+		delay(200); // Extended delay to let decoders fully settle
 		
 		// Set seek bars to paused but preserve position information
 		leftSeekBar->setPlaying(false);
@@ -1143,6 +1197,13 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 	keepAudioOnStop = false;
 	justCompletedHotSwap = true;
 	
+	// Schedule auto-resume for player 1 after short delay
+	if(system && f1 && f1.size() > 0){
+		Serial.println("Scheduling auto-resume for player 1 after hot-swap");
+		pendingAutoResume = true;
+		autoResumeScheduledTime = millis() + 500; // 500ms delay to let decoder stabilize
+	}
+	
 	Serial.println("=== HOT-SWAP COMPLETE ===");
 }
 
@@ -1169,4 +1230,31 @@ void MixScreen::MixScreen::encBtnHold(uint8_t i){
 		Serial.println("=== SongList opened ===\n");
 		return;
 	}
+}
+
+void MixScreen::MixScreen::initializeDefaultEffects(){
+	if(!system){
+		Serial.println("WARNING: Cannot initialize effects - system not ready");
+		return;
+	}
+	
+	Serial.println("Initializing default effects using existing selector logic...");
+	
+	for(int i = 0; i < 6; i++){
+		EffectType type = effectElements[i]->getType();
+		if(type == NONE) continue;
+		
+		// Use the exact same logic as the existing effect selector
+		if(type == EffectType::SPEED){
+			system->addSpeed(i >= 3);
+			effectElements[i]->setIntensity(255 / 2);
+			Serial.printf("Applied SPEED effect to channel %d\n", i >= 3 ? 1 : 0);
+		}else{
+			system->setEffect(i >= 3, i < 3 ? i : i - 3, type);
+			Serial.printf("Applied effect %d to channel %d, slot %d\n", 
+				(int)type, i >= 3 ? 1 : 0, i < 3 ? i : i - 3);
+		}
+	}
+	
+	Serial.println("Default effects initialized using selector logic");
 }
