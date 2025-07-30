@@ -14,6 +14,9 @@ IntroScreen::IntroScreen *IntroScreen::IntroScreen::instance = nullptr;
 
 
 IntroScreen::IntroScreen::IntroScreen(Display &display) : Context(display){
+	Serial.println("\n=== INTROSCREEN CONSTRUCTOR ===");
+	Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
+	
 	instance = this;
 
 	fs::File f = SPIFFS.open("/intro.g565.hs");
@@ -45,14 +48,23 @@ void IntroScreen::IntroScreen::start(){
 	gif->setLoopDoneCallback([]{
 		if(instance == nullptr) return;
 
+		Serial.println("\n=== INTRO COMPLETE - LAUNCHING MIXSCREEN ===");
+		Serial.printf("Free heap before MixScreen: %u bytes\n", ESP.getFreeHeap());
+
 		Display& display = *instance->getScreen().getDisplay();
 
 		instance->stop();
 		delete instance;
 
+		Serial.println("Creating MixScreen...");
 		MixScreen::MixScreen* mixScreen = new MixScreen::MixScreen(display);
+		Serial.printf("MixScreen created: %p\n", mixScreen);
+		
 		mixScreen->unpack();
+		Serial.println("MixScreen unpacked, starting...");
 		mixScreen->start();
+		
+		Serial.println("=== MIXSCREEN LAUNCHED ===\n");
 	});
 
 	LoopManager::addListener(this);

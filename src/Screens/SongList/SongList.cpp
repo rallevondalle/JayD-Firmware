@@ -148,7 +148,14 @@ void SongList::SongList::start(){
 		}
 		file.close();
 
+		Serial.printf("\n=== SONGLIST SELECTION ===\n");
+		Serial.printf("Selected file: %s\n", path.c_str());
+		Serial.printf("Free heap before pop: %u bytes\n", ESP.getFreeHeap());
+		Serial.println("Calling pop() to return to MixScreen...");
+		
 		instance->pop(new String(path));
+		
+		Serial.println("=== SONGLIST SELECTION END ===\n");
 	});
 
 	Input.addListener(this);

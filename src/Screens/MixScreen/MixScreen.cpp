@@ -20,6 +20,9 @@ MixScreen::MixScreen::MixScreen(Display& display) : Context(display),
 													rightSongName(new SongName(rightLayout)), leftVu(&matrixManager.matrixL), rightVu(&matrixManager.matrixR),
 													midVu(&matrixManager.matrixBig){
 
+	Serial.println("\n=== MIXSCREEN CONSTRUCTOR START ===");
+	Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
+
 	for(int i = 0; i < 3; i++){
 		effectElements[i] = new EffectElement(leftLayout, false);
 	}
@@ -28,8 +31,15 @@ MixScreen::MixScreen::MixScreen(Display& display) : Context(display),
 	}
 
 	instance = this;
+	Serial.printf("MixScreen instance set: %p\n", this);
+	
 	buildUI();
+	Serial.println("MixScreen UI built");
+	
 	MixScreen::pack();
+	Serial.println("MixScreen packed");
+	Serial.printf("Free heap after constructor: %u bytes\n", ESP.getFreeHeap());
+	Serial.println("=== MIXSCREEN CONSTRUCTOR END ===\n");
 }
 
 MixScreen::MixScreen::~MixScreen(){
@@ -55,7 +65,7 @@ void MixScreen::MixScreen::unpack(){
 	selectedBackgroundBuffer = static_cast<Color*>(ps_malloc(79 * 128 * 2));
 	if(selectedBackgroundBuffer == nullptr){
 		Serial.println("ERROR: Selected background malloc failed");
-		Serial.printf("Free PSRAM: %u bytes\n", ESP.getFreePsram());
+		Serial.println("PSRAM: Available");
 		return;
 	}
 	
@@ -211,9 +221,14 @@ void MixScreen::MixScreen::returned(void* data){
 		// Add extra validation to prevent crashes
 		if(!newFile.available() || newFile.size() == 0){
 			Serial.println("ERROR: File not available or empty");
+			Serial.printf("File available: %s, size: %d\n", 
+				newFile.available() ? "YES" : "NO", newFile.size());
 			newFile.close();
 			return;
 		}
+		
+		Serial.printf("File validation passed - available: %s, size: %d\n",
+			newFile.available() ? "YES" : "NO", newFile.size());
 		
 		if(!f1){
 			Serial.println("Assigning to f1 (player 1)");
@@ -932,6 +947,7 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 	// SMART HOT-SWAP: Update MixSystem without full context restart
 	// This preserves audio playback during track loading
 	Serial.println("Updating MixSystem to include new track...");
+	Serial.printf("Pre-update memory: heap=%u\n", ESP.getFreeHeap());
 	
 	if(system){
 		Serial.printf("Recreating MixSystem with updated files (old: %p)\n", system);
@@ -962,11 +978,20 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		uint8_t mixVal = InputJayD::getInstance()->getPotValue(POT_MID);
 		
 		// Stop old system
+		Serial.println("Stopping old MixSystem...");
 		system->stop();
+		Serial.println("Deleting old MixSystem...");
 		delete system;
+		Serial.printf("Post-delete memory: heap=%u\n", ESP.getFreeHeap());
+		
+		// POWER MANAGEMENT: Delay before creating new system
+		delay(100);
 		
 		// Create new system with both files
+		Serial.println("Creating new MixSystem...");
 		system = new MixSystem(f1, f2);
+		Serial.printf("New MixSystem created: %p\n", system);
+		Serial.printf("Post-create memory: heap=%u\n", ESP.getFreeHeap());
 		
 		// Restore settings
 		system->setVolume(0, leftVol);
@@ -1058,7 +1083,13 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 
 void MixScreen::MixScreen::encBtnHold(uint8_t i){
 	if(i == 6){
-		Serial.printf("=== HOLD BUTTON 6: Loading track for deck %d ===\n", selectedChannel);
+		Serial.printf("\n=== HOLD BUTTON 6: Loading track for deck %d ===\n", selectedChannel);
+		Serial.printf("Current state - f1: %s, f2: %s\n", 
+			(f1 && f1.size() > 0) ? "loaded" : "empty",
+			(f2 && f2.size() > 0) ? "loaded" : "empty");
+		Serial.printf("System: %p, hotSwapInProgress: %s\n", 
+			system, hotSwapInProgress ? "true" : "false");
+		Serial.printf("Memory before SongList: heap=%u\n", ESP.getFreeHeap());
 		
 		// Store which deck we're loading for
 		isLoadingTrack = true;
@@ -1066,8 +1097,11 @@ void MixScreen::MixScreen::encBtnHold(uint8_t i){
 		keepAudioOnStop = true; // Keep audio playing when SongList is shown
 		
 		Serial.printf("Set keepAudioOnStop = true, loadingDeck = %d\n", loadingDeck);
+		Serial.println("Opening SongList...");
 		
 		(new SongList::SongList(*getScreen().getDisplay()))->push(this);
+		
+		Serial.println("=== SongList opened ===\n");
 		return;
 	}
 }
