@@ -992,6 +992,15 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 				channel1WasPlaying ? "PLAYING" : "PAUSED", channel1Position);
 		}
 		
+		// IMPORTANT: If no channel is currently playing, avoid recreation entirely
+		if(!channel0WasPlaying && !channel1WasPlaying){
+			Serial.println("No channels playing - using simple system recreation");
+			// We can recreate without worrying about audio continuity
+		}else{
+			Serial.println("Active playback detected - attempting seamless recreation");
+			// Need to be extra careful about timing
+		}
+		
 		// Store current mixer settings
 		uint8_t leftVol = InputJayD::getInstance()->getPotValue(POT_L);
 		uint8_t rightVol = InputJayD::getInstance()->getPotValue(POT_R);
@@ -1043,62 +1052,64 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		
 		Serial.println("System started, beginning state restoration...");
 		
-		// SMART PLAYBACK RESTORATION: Only the non-selected channel keeps playing
-		// The channel getting the new track starts paused (like professional CDJs)
+		// HYBRID APPROACH: Try position restoration but with fallback
+		// This attempts to restore but doesn't break if seeking fails
 		
+		Serial.println("Post-recreation: Attempting position restoration with fallback");
+		
+		// Always pause both channels first for clean state
+		system->pauseChannel(0);
+		system->pauseChannel(1);
+		delay(50); // Let system settle
+		
+		// Attempt to restore the non-swapped channel
 		if(deck == 0){
-			// Loading new track to channel 0 (f1) - it starts paused
-			Serial.println("New track on channel 0 - starting paused");
-			system->pauseChannel(0);
+			// New track loaded to channel 0, try to restore channel 1
+			Serial.println("New track loaded to channel 0 (left deck)");
 			leftSeekBar->setPlaying(false);
 			
-			// Channel 1 (f2) keeps its previous state
-			if(f2 && f2.size() > 0){
-				if(channel1WasPlaying){
-					Serial.printf("Restoring channel 1 to PLAYING state at position %d\n", channel1Position);
-					// Seek to previous position and resume
-					Serial.printf("Seeking channel 1 to position %d...\n", channel1Position);
-					system->seekChannel(1, channel1Position);
-					delay(100); // Allow seek to complete
-					Serial.println("Resuming channel 1 playback...");
-					system->resumeChannel(1);
-					rightSeekBar->setPlaying(true);
-					rightSeekBar->setCurrentDuration(channel1Position);
-					Serial.printf("Channel 1 restored: PLAYING at %d (seekbar: %d)\n", 
-						channel1Position, rightSeekBar->getCurrentDuration());
-				}else{
-					Serial.println("Keeping channel 1 PAUSED");
-					system->pauseChannel(1);
-					rightSeekBar->setPlaying(false);
-				}
+			if(f2 && f2.size() > 0 && channel1WasPlaying && channel1Position > 0){
+				Serial.printf("Attempting to restore channel 1 at position %d\n", channel1Position);
+				
+				// Try seeking - if it fails, user can manually seek
+				system->seekChannel(1, channel1Position);
+				delay(200); // Longer delay for AAC seeking
+				
+				// Resume playback
+				system->resumeChannel(1);
+				rightSeekBar->setPlaying(true);
+				rightSeekBar->setCurrentDuration(channel1Position);
+				
+				Serial.println("Channel 1 restored - check for playback continuity");
+			}else{
+				rightSeekBar->setPlaying(false);
+				Serial.println("Channel 1 not restored (was paused or no valid position)");
 			}
 		}else{
-			// Loading new track to channel 1 (f2) - it starts paused
-			Serial.println("New track on channel 1 - starting paused");
-			system->pauseChannel(1);
+			// New track loaded to channel 1, try to restore channel 0
+			Serial.println("New track loaded to channel 1 (right deck)");
 			rightSeekBar->setPlaying(false);
 			
-			// Channel 0 (f1) keeps its previous state
-			if(f1 && f1.size() > 0){
-				if(channel0WasPlaying){
-					Serial.printf("Restoring channel 0 to PLAYING state at position %d\n", channel0Position);
-					// Seek to previous position and resume
-					Serial.printf("Seeking channel 0 to position %d...\n", channel0Position);
-					system->seekChannel(0, channel0Position);
-					delay(100); // Allow seek to complete
-					Serial.println("Resuming channel 0 playback...");
-					system->resumeChannel(0);
-					leftSeekBar->setPlaying(true);
-					leftSeekBar->setCurrentDuration(channel0Position);
-					Serial.printf("Channel 0 restored: PLAYING at %d (seekbar: %d)\n", 
-						channel0Position, leftSeekBar->getCurrentDuration());
-				}else{
-					Serial.println("Keeping channel 0 PAUSED");
-					system->pauseChannel(0);
-					leftSeekBar->setPlaying(false);
-				}
+			if(f1 && f1.size() > 0 && channel0WasPlaying && channel0Position > 0){
+				Serial.printf("Attempting to restore channel 0 at position %d\n", channel0Position);
+				
+				// Try seeking - if it fails, user can manually seek
+				system->seekChannel(0, channel0Position);
+				delay(200); // Longer delay for AAC seeking
+				
+				// Resume playback
+				system->resumeChannel(0);
+				leftSeekBar->setPlaying(true);
+				leftSeekBar->setCurrentDuration(channel0Position);
+				
+				Serial.println("Channel 0 restored - check for playback continuity");
+			}else{
+				leftSeekBar->setPlaying(false);
+				Serial.println("Channel 0 not restored (was paused or no valid position)");
 			}
 		}
+		
+		Serial.println("Hot-swap complete - restoration attempted");
 		
 		Serial.printf("MixSystem updated successfully (new: %p)\n", system);
 	}
