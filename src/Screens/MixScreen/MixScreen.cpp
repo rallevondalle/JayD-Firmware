@@ -794,6 +794,13 @@ void MixScreen::MixScreen::btn(uint8_t i){
 		if(wasPlaying){
 			system->pauseChannel(i);
 		}else{
+			// SMART RESUME: If channel is paused and has a position > 0, seek first
+			uint32_t currentPos = bar->getCurrentDuration();
+			if(currentPos > 0){
+				Serial.printf("Smart resume: Seeking to position %d before playing\n", currentPos);
+				system->seekChannel(i, currentPos);
+				delay(150); // Allow seek to complete before resume
+			}
 			system->resumeChannel(i);
 		}
 		
@@ -1052,64 +1059,48 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		
 		Serial.println("System started, beginning state restoration...");
 		
-		// HYBRID APPROACH: Try position restoration but with fallback
-		// This attempts to restore but doesn't break if seeking fails
+		// DJ-STYLE APPROACH: Clean pause all, preserve positions, let user control resume
+		// This works with MixSystem limitations rather than fighting them
 		
-		Serial.println("Post-recreation: Attempting position restoration with fallback");
+		Serial.println("Post-recreation: DJ-style hot-swap - clean state with position memory");
 		
-		// Always pause both channels first for clean state
+		// Always pause both channels for clean state (no decode errors)
 		system->pauseChannel(0);
 		system->pauseChannel(1);
-		delay(50); // Let system settle
+		delay(100); // Let system fully settle
 		
-		// Attempt to restore the non-swapped channel
+		// Set seek bars to paused but preserve position information
+		leftSeekBar->setPlaying(false);
+		rightSeekBar->setPlaying(false);
+		
+		// Store the positions in seek bars so user can see where they were
 		if(deck == 0){
-			// New track loaded to channel 0, try to restore channel 1
-			Serial.println("New track loaded to channel 0 (left deck)");
-			leftSeekBar->setPlaying(false);
+			// New track loaded to channel 0 (left deck)
+			Serial.println("Hot-swap: New track on LEFT deck, preserving RIGHT deck position");
 			
-			if(f2 && f2.size() > 0 && channel1WasPlaying && channel1Position > 0){
-				Serial.printf("Attempting to restore channel 1 at position %d\n", channel1Position);
-				
-				// Try seeking - if it fails, user can manually seek
-				system->seekChannel(1, channel1Position);
-				delay(200); // Longer delay for AAC seeking
-				
-				// Resume playback
-				system->resumeChannel(1);
-				rightSeekBar->setPlaying(true);
+			// New track starts at beginning
+			leftSeekBar->setCurrentDuration(0);
+			
+			// Preserve the position of the continuing track
+			if(f2 && f2.size() > 0 && channel1Position > 0){
 				rightSeekBar->setCurrentDuration(channel1Position);
-				
-				Serial.println("Channel 1 restored - check for playback continuity");
-			}else{
-				rightSeekBar->setPlaying(false);
-				Serial.println("Channel 1 not restored (was paused or no valid position)");
+				Serial.printf("RIGHT deck position preserved: %d seconds (press play to continue)\n", channel1Position);
 			}
 		}else{
-			// New track loaded to channel 1, try to restore channel 0
-			Serial.println("New track loaded to channel 1 (right deck)");
-			rightSeekBar->setPlaying(false);
+			// New track loaded to channel 1 (right deck)  
+			Serial.println("Hot-swap: New track on RIGHT deck, preserving LEFT deck position");
 			
-			if(f1 && f1.size() > 0 && channel0WasPlaying && channel0Position > 0){
-				Serial.printf("Attempting to restore channel 0 at position %d\n", channel0Position);
-				
-				// Try seeking - if it fails, user can manually seek
-				system->seekChannel(0, channel0Position);
-				delay(200); // Longer delay for AAC seeking
-				
-				// Resume playback
-				system->resumeChannel(0);
-				leftSeekBar->setPlaying(true);
+			// New track starts at beginning
+			rightSeekBar->setCurrentDuration(0);
+			
+			// Preserve the position of the continuing track
+			if(f1 && f1.size() > 0 && channel0Position > 0){
 				leftSeekBar->setCurrentDuration(channel0Position);
-				
-				Serial.println("Channel 0 restored - check for playback continuity");
-			}else{
-				leftSeekBar->setPlaying(false);
-				Serial.println("Channel 0 not restored (was paused or no valid position)");
+				Serial.printf("LEFT deck position preserved: %d seconds (press play to continue)\n", channel0Position);
 			}
 		}
 		
-		Serial.println("Hot-swap complete - restoration attempted");
+		Serial.println("Hot-swap complete - DJ can now resume playback with precise control");
 		
 		Serial.printf("MixSystem updated successfully (new: %p)\n", system);
 	}
