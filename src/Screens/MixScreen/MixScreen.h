@@ -91,11 +91,24 @@ namespace MixScreen {
 		
 		// Auto-resume after hot-swap
 		bool pendingAutoResume = false;
+		uint8_t pendingAutoResumeChannel = 0;
 		uint32_t autoResumeScheduledTime = 0;
+		
+		// Stored hardware mixer values for hot-swap
+		uint8_t storedLeftVol = 200;
+		uint8_t storedRightVol = 200;
+		uint8_t storedMixVal = 128;
+		
+		// Track last known good hardware values from potMove callbacks
+		uint8_t lastValidLeftVol = 200;
+		uint8_t lastValidRightVol = 200;
+		uint8_t lastValidMixVal = 128;
 
 		void startBigVu();
 		void stopBigVu();
 		void hotSwapTrack(uint8_t deck, fs::File newFile);
+		
+		uint8_t applyCrossfaderCurve(uint8_t rawValue);
 		void initializeDefaultEffects();
 
 		void potMove(uint8_t id, uint8_t value) override;

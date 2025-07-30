@@ -72,7 +72,7 @@ const String& SongList::ListItem::getName() const{
 bool SongList::ListItem::checkScrollUpdate(){
 	if(!(scrolling && selected)) return false;
 
-	if(currentTime + scrollSpeed <= millis()){
+	if(currentTime + 33 <= millis()){ // Force 3x faster scrolling (was scrollSpeed)
 		currentTime = millis();
 		scrollCursor-=1;
 		if(scrollCursor <= -nameLength + 2){

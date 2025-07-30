@@ -40,7 +40,7 @@ private:
 	bool btnEncStates[7] = { false };
 	bool btnStates[2] = { false };
 
-	static const uint32_t holdTime = 500;
+	static const uint32_t holdTime = 1000; // Changed to 1 second
 	uint32_t btnEncTime[7] = { 0 };
 	bool btnEncHeld[7] = { false };
 

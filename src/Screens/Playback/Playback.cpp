@@ -225,5 +225,11 @@ void Playback::Playback::enc(uint8_t id, int8_t value) {
 }
 
 void Playback::Playback::encTwoTop() {
-	(new SongList::SongList(*getScreen().getDisplay()))->push(this);
+	Serial.println("=== DUAL ENCODER MENU ACTIVATED (Playback) ===");
+	Serial.println("Switching to main menu for mode selection...");
+	
+	// Go to main menu for mode selection (Playback/DJ/Settings)
+	if(parent != nullptr){
+		pop();
+	}
 }

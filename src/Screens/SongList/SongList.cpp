@@ -356,6 +356,10 @@ void SongList::SongList::createSongIndex(){
 }
 
 void SongList::SongList::encTwoTop(){
+	Serial.println("=== DUAL ENCODER MENU ACTIVATED (SongList) ===");
+	Serial.println("Switching to main menu for mode selection...");
+	
+	// Go to main menu for mode selection (Playback/DJ/Settings)
 	delete parent;
 	stop();
 	delete this;

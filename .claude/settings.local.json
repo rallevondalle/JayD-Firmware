@@ -7,7 +7,10 @@
       "Bash(git commit:*)",
       "Bash(arduino-cli compile:*)",
       "Bash(git branch:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(git merge:*)"
     ],
     "deny": []
   }

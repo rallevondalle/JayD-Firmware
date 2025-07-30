@@ -16,7 +16,7 @@ namespace MixScreen {
 	private:
 		String songName = "";
 		bool scrolling = false;
-		const int32_t scrollSpeed = 100; //in milliseconds
+		const int32_t scrollSpeed = 33; //in milliseconds (3x faster)
 		uint32_t currentTime = 0;
 		int32_t nameLength;
 		int32_t scrollCursor = 0;

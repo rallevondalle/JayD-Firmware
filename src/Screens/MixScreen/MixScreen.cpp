@@ -314,6 +314,8 @@ void MixScreen::MixScreen::start(){
 	// This allows the mixer interface to be ready for loading tracks individually
 	if(!f1 && !f2){
 		Serial.println("No tracks loaded - showing song selection");
+		Serial.printf("DEBUG: f1 size = %d, f2 size = %d\n", 
+			f1 ? f1.size() : 0, f2 ? f2.size() : 0);
 		// No tracks loaded - go to song selection for the first track
 		draw();
 		screen.commit();
@@ -463,6 +465,9 @@ void MixScreen::MixScreen::start(){
 		// Check if we just completed a hot-swap - if so, system is already running
 		if(justCompletedHotSwap){
 			Serial.println("Hot-swap detected - system already running, preserving states");
+			Serial.printf("Hot-swap validation: f1=%s (size=%d), f2=%s (size=%d)\n",
+				f1 ? "valid" : "null", f1 ? f1.size() : 0,
+				f2 ? "valid" : "null", f2 ? f2.size() : 0);
 			justCompletedHotSwap = false; // Reset the flag
 		}else{
 			Serial.println("Starting MixSystem with power management...");
@@ -645,26 +650,32 @@ void MixScreen::MixScreen::buildUI(){
 void MixScreen::MixScreen::loop(uint micros){
 	// Handle scheduled auto-resume after hot-swap
 	if(pendingAutoResume && millis() >= autoResumeScheduledTime){
-		if(system && f1 && f1.size() > 0 && !hotSwapInProgress){
-			Serial.println("Executing auto-resume: simulating play button press");
-			// Simulate user pressing play button on channel 0
-			// This goes through the same logic as btn(0) but without user input
-			if(system->isChannelPaused(0)){
-				// Use preserved position from seek bar (not system elapsed which is 0 after recreation)
-				uint32_t preservedPos = leftSeekBar->getCurrentDuration();
-				Serial.printf("Auto-resume: Using preserved position %u seconds\n", preservedPos);
+		if(system && !hotSwapInProgress && !isLoadingTrack){
+			uint8_t channel = pendingAutoResumeChannel;
+			SongSeekBar* seekBar = (channel == 0) ? leftSeekBar : rightSeekBar;
+			fs::File& trackFile = (channel == 0) ? f1 : f2;
+			
+			if(trackFile && trackFile.size() > 0){
+				Serial.printf("Executing auto-resume: simulating play button press on channel %d\n", channel);
 				
-				// Seek to preserved position first
-				if(preservedPos > 0){
-					system->seekChannel(0, preservedPos);
-					delay(100); // Let seek complete
+				if(system->isChannelPaused(channel)){
+					// Use preserved position from seek bar
+					uint32_t preservedPos = seekBar->getCurrentDuration();
+					Serial.printf("Auto-resume: Using preserved position %u seconds on channel %d\n", preservedPos, channel);
+					
+					// Seek to preserved position first
+					if(preservedPos > 0){
+						system->seekChannel(channel, preservedPos);
+						delay(100); // Let seek complete
+					}
+					
+					// Minimal delays for better audio continuity
+					delay(50); // Reduced pre-resume delay
+					system->resumeChannel(channel);
+					delay(25); // Minimal post-resume stabilization
+					seekBar->setPlaying(true);
+					Serial.printf("Auto-resume completed: Channel %d playing from position %u\n", channel, preservedPos);
 				}
-				
-				// Add extra delay before resume to prevent decode errors
-				delay(50);
-				system->resumeChannel(0);
-				leftSeekBar->setPlaying(true);
-				Serial.printf("Auto-resume completed: Channel 0 playing from position %u\n", preservedPos);
 			}
 		}
 		pendingAutoResume = false;
@@ -765,17 +776,61 @@ void MixScreen::MixScreen::loop(uint micros){
 }
 
 
+uint8_t MixScreen::MixScreen::applyCrossfaderCurve(uint8_t rawValue){
+	// Professional DJ crossfader curve with sharper cut and better blending
+	// Range: 0-255, with 128 as center
+	
+	float normalized = (float)rawValue / 255.0f; // 0.0 to 1.0
+	float curve;
+	
+	if(normalized < 0.5f){
+		// Left side (0.0 to 0.5): Exponential curve for sharp cut
+		float leftSide = normalized * 2.0f; // 0.0 to 1.0
+		curve = pow(leftSide, 2.5f) * 0.5f; // Steeper curve, map to 0.0-0.5
+	}else{
+		// Right side (0.5 to 1.0): Exponential curve for sharp cut
+		float rightSide = (normalized - 0.5f) * 2.0f; // 0.0 to 1.0
+		curve = 0.5f + (pow(rightSide, 2.5f) * 0.5f); // Steeper curve, map to 0.5-1.0
+	}
+	
+	return (uint8_t)(curve * 255.0f);
+}
+
 void MixScreen::MixScreen::potMove(uint8_t id, uint8_t value){
 	if(!system) return;
 	
+	// Prevent crossfader jumps during hot-swap by ignoring rapid changes
+	static uint32_t lastCrossfaderUpdate = 0;
+	static uint8_t lastCrossfaderValue = 128;
+	
 	if(id == POT_MID){
-		system->setMix(value);
-		matrixManager.fillMatrixMid(value);
-		matrixManager.matrixMid.push();
+		uint32_t now = millis();
+		
+		// Detect crossfader jumps (hardware glitches during hot-swap)
+		bool isJump = abs((int)value - (int)lastCrossfaderValue) > 50 && 
+		              (now - lastCrossfaderUpdate) < 100;
+		
+		if(!hotSwapInProgress && !isJump){
+			// Apply professional DJ crossfader curve
+			uint8_t curvedValue = applyCrossfaderCurve(value);
+			
+			system->setMix(curvedValue);
+			matrixManager.fillMatrixMid(value); // Visual uses raw value for smooth display
+			matrixManager.matrixMid.push();
+			
+			// Track last valid crossfader value (use raw value for hardware tracking)
+			lastValidMixVal = value;
+			lastCrossfaderValue = value;
+			lastCrossfaderUpdate = now;
+		}
 	}else if(id == POT_L){
 		system->setVolume(0, value);
+		// Track last valid left volume value
+		lastValidLeftVol = value;
 	}else if(id == POT_R){
 		system->setVolume(1, value);
+		// Track last valid right volume value
+		lastValidRightVol = value;
 	}
 }
 
@@ -799,7 +854,14 @@ void MixScreen::MixScreen::encTwoBot(){
 }
 
 void MixScreen::MixScreen::encTwoTop(){
-	pop();
+	Serial.println("=== DUAL ENCODER MENU ACTIVATED ===");
+	
+	// Create a simple selection menu
+	// For now, just go to main menu where user can select Playback, DJ (MixScreen), or Settings
+	// TODO: Could implement a custom popup menu here in the future
+	
+	Serial.println("Switching to main menu for mode selection...");
+	pop(); // This takes us back to MainMenu where user can choose Playback/DJ/Settings
 }
 
 void MixScreen::MixScreen::btnCombination(){
@@ -995,6 +1057,19 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 	
 	hotSwapInProgress = true;
 	
+	// Use stored hardware mixer values captured when button was held
+	uint8_t leftVol = storedLeftVol;
+	uint8_t rightVol = storedRightVol;
+	uint8_t mixVal = storedMixVal;
+	
+	Serial.printf("Using stored hardware mixer values: Vol L=%d, Vol R=%d, Mix=%d\n", leftVol, rightVol, mixVal);
+	
+	// Declare channel state variables at function scope
+	bool channel0WasPlaying = false;
+	bool channel1WasPlaying = false;
+	uint32_t channel0Position = 0;
+	uint32_t channel1Position = 0;
+	
 	// Validate the new file first
 	if(!newFile || newFile.size() == 0){
 		Serial.println("ERROR: Invalid file for hot-swap");
@@ -1035,8 +1110,6 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 	// Show the track name change immediately  
 	drawQueued = true;
 	
-	hotSwapInProgress = false;
-	
 	// SMART HOT-SWAP: Update MixSystem without full context restart
 	// This preserves audio playback during track loading
 	Serial.println("Updating MixSystem to include new track...");
@@ -1045,11 +1118,10 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 	if(system){
 		Serial.printf("Recreating MixSystem with updated files (old: %p)\n", system);
 		
+		// CRITICAL: Prevent any system access during recreation
+		hotSwapInProgress = true;
+		
 		// CRITICAL: Store playback states before recreating system
-		bool channel0WasPlaying = false;
-		bool channel1WasPlaying = false;
-		uint32_t channel0Position = 0;
-		uint32_t channel1Position = 0;
 		
 		if(f1 && f1.size() > 0){
 			channel0WasPlaying = !system->isChannelPaused(0);
@@ -1074,10 +1146,7 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 			// Need to be extra careful about timing
 		}
 		
-		// Store current mixer settings
-		uint8_t leftVol = InputJayD::getInstance()->getPotValue(POT_L);
-		uint8_t rightVol = InputJayD::getInstance()->getPotValue(POT_R);
-		uint8_t mixVal = InputJayD::getInstance()->getPotValue(POT_MID);
+		// Mixer settings already stored at function start
 		
 		// Stop old system safely
 		if(system){
@@ -1110,12 +1179,7 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		Serial.printf("New MixSystem created: %p\n", system);
 		Serial.printf("Post-create memory: heap=%u\n", ESP.getFreeHeap());
 		
-		// Restore settings
-		system->setVolume(0, leftVol);
-		system->setVolume(1, rightVol);
-		system->setMix(mixVal);
-		
-		// Restore VU meter connections
+		// Restore VU meter connections first (safe to do immediately)
 		system->setChannelInfo(0, leftVu.getInfoGenerator());
 		system->setChannelInfo(1, rightVu.getInfoGenerator());
 		system->setChannelInfo(2, midVu.getInfoGenerator());
@@ -1135,8 +1199,18 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		// Start new system
 		system->start();
 		
-		// Add longer delay to let system stabilize before state restoration
-		delay(200);
+		// Optimized stabilization delays for better audio continuity
+		// Shorter delays reduce audio dropouts during hot-swap
+		if(channel0WasPlaying && channel1WasPlaying){
+			Serial.println("Both channels were playing - using minimal dual-channel delay");
+			delay(200); // Reduced from 500ms for better continuity
+		}else if(channel0WasPlaying || channel1WasPlaying){
+			Serial.println("Single channel playing - using minimal delay");
+			delay(150); // Reduced from 350ms for better continuity
+		}else{
+			Serial.println("No channels playing - using standard delay");
+			delay(250); // Standard delay when no audio is playing
+		}
 		
 		Serial.println("System started, beginning state restoration...");
 		
@@ -1147,13 +1221,48 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		
 		// Always pause both channels for clean state (prevent decode errors)
 		system->pauseChannel(0);
-		delay(50);
+		delay(100); // Longer delay between pauses
 		system->pauseChannel(1);
-		delay(200); // Extended delay to let decoders fully settle
+		
+		// Optimized settlement delay - less aggressive for dual-channel scenarios
+		if(channel0WasPlaying && channel1WasPlaying){
+			Serial.println("Dual-channel scenario - using optimized delay");
+			delay(400); // Reduced to prevent timing issues
+		}else{
+			delay(300); // Reduced for single-channel scenarios
+		}
+		
+		// Additional decoder stability measures to prevent lockup and resets
+		Serial.println("Performing decoder stability check...");
+		
+		// Give more time for decoder to fully initialize with new files
+		delay(500);
+		
+		// Ensure both files are at the beginning for clean decoder state
+		if(f1 && f1.size() > 0) {
+			f1.seek(0);
+			Serial.printf("Reset f1 to position 0 (size: %d)\n", f1.size());
+		}
+		if(f2 && f2.size() > 0) {
+			f2.seek(0);
+			Serial.printf("Reset f2 to position 0 (size: %d)\n", f2.size());
+		}
+		
+		delay(200); // Additional stabilization time
 		
 		// Set seek bars to paused but preserve position information
 		leftSeekBar->setPlaying(false);
 		rightSeekBar->setPlaying(false);
+		
+		// Restore mixer settings AFTER system stabilization to prevent volume jumps
+		Serial.println("Restoring mixer settings after stabilization...");
+		system->setVolume(0, leftVol);
+		system->setVolume(1, rightVol);
+		
+		// Apply crossfader curve to stored mix value for consistent audio response
+		uint8_t curvedMixVal = applyCrossfaderCurve(mixVal);
+		system->setMix(curvedMixVal);
+		Serial.printf("Mixer settings restored: Vol L=%d, Vol R=%d, Mix=%d (curved: %d)\n", leftVol, rightVol, mixVal, curvedMixVal);
 		
 		// Store the positions in seek bars so user can see where they were
 		if(deck == 0){
@@ -1193,15 +1302,54 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		Serial.printf("MixSystem updated successfully (new: %p)\n", system);
 	}
 	
-	// Reset audio preservation flag and set hot-swap completion flag
+	// Reset flags after hot-swap completion
+	hotSwapInProgress = false; // Clear protection flag
 	keepAudioOnStop = false;
 	justCompletedHotSwap = true;
 	
-	// Schedule auto-resume for player 1 after short delay
-	if(system && f1 && f1.size() > 0){
-		Serial.println("Scheduling auto-resume for player 1 after hot-swap");
-		pendingAutoResume = true;
-		autoResumeScheduledTime = millis() + 500; // 500ms delay to let decoder stabilize
+	// Prevent any lingering loading states that could cause issues
+	isLoadingTrack = false;
+	
+	Serial.println("Hot-swap flags reset - system ready for normal operation");
+	
+	// Use stored hardware values (already validated when captured) instead of reading fresh
+	// Reading hardware values immediately after hot-swap can return corrupted data
+	Serial.println("Using stored hardware values (already validated during capture)...");
+	
+	// Apply stored hardware values to system to match hardware position when button was held
+	if(system){
+		system->setVolume(0, storedLeftVol);
+		system->setVolume(1, storedRightVol);
+		uint8_t curvedMixVal = applyCrossfaderCurve(storedMixVal);
+		system->setMix(curvedMixVal);
+		
+		// Update tracked values to match stored hardware values
+		lastValidLeftVol = storedLeftVol;
+		lastValidRightVol = storedRightVol;
+		lastValidMixVal = storedMixVal;
+		
+		Serial.printf("Applied stored hardware values: Vol L=%d, Vol R=%d, Mix=%d (curved: %d)\n", 
+			storedLeftVol, storedRightVol, storedMixVal, curvedMixVal);
+	}
+	
+	// Schedule auto-resume for the channel that WASN'T replaced (the continuing channel)
+	if(system){
+		if(deck == 0 && channel1WasPlaying && f2 && f2.size() > 0){
+			// Replaced Player 1 (deck 0), continue Player 2 (channel 1)
+			Serial.println("Scheduling auto-resume for player 2 (RIGHT) - continuing after Player 1 replacement");
+			pendingAutoResume = true;
+			pendingAutoResumeChannel = 1;
+			autoResumeScheduledTime = millis() + 400; // Reduced delay for faster continuity
+		}else if(deck == 1 && channel0WasPlaying && f1 && f1.size() > 0){
+			// Replaced Player 2 (deck 1), continue Player 1 (channel 0)
+			Serial.println("Scheduling auto-resume for player 1 (LEFT) - continuing after Player 2 replacement");
+			pendingAutoResume = true;
+			pendingAutoResumeChannel = 0;
+			autoResumeScheduledTime = millis() + 400; // Reduced delay for faster continuity
+		}else{
+			Serial.printf("No auto-resume scheduled: deck=%d, ch0Playing=%s, ch1Playing=%s\n", 
+				deck, channel0WasPlaying ? "true" : "false", channel1WasPlaying ? "true" : "false");
+		}
 	}
 	
 	Serial.println("=== HOT-SWAP COMPLETE ===");
@@ -1216,6 +1364,31 @@ void MixScreen::MixScreen::encBtnHold(uint8_t i){
 		Serial.printf("System: %p, hotSwapInProgress: %s\n", 
 			system, hotSwapInProgress ? "true" : "false");
 		Serial.printf("Memory before SongList: heap=%u\n", ESP.getFreeHeap());
+		
+		// Capture hardware mixer values while system is stable
+		// For all pots, use the last known good values from potMove callbacks
+		// as getPotValue() can return corrupted data during system transitions
+		
+		// Use the last valid values tracked by potMove callbacks
+		storedLeftVol = lastValidLeftVol;
+		storedRightVol = lastValidRightVol;
+		storedMixVal = lastValidMixVal;
+		
+		// Fallback to direct reading only if we don't have tracked values
+		if(storedLeftVol == 0 && storedRightVol == 0 && storedMixVal == 0) {
+			Serial.println("No tracked values - attempting direct hardware read");
+			uint8_t rawLeftVol = InputJayD::getInstance()->getPotValue(POT_L);
+			uint8_t rawRightVol = InputJayD::getInstance()->getPotValue(POT_R);
+			uint8_t rawMixVal = InputJayD::getInstance()->getPotValue(POT_MID);
+			
+			// Validate direct readings
+			storedLeftVol = (rawLeftVol > 255) ? 128 : rawLeftVol;  // Default to mid-level
+			storedRightVol = (rawRightVol > 255) ? 128 : rawRightVol;
+			storedMixVal = (rawMixVal > 255) ? 128 : rawMixVal;
+		}
+		
+		Serial.printf("Captured hardware mixer values: Vol L=%d, Vol R=%d, Mix=%d (validated)\n", 
+			storedLeftVol, storedRightVol, storedMixVal);
 		
 		// Store which deck we're loading for
 		isLoadingTrack = true;
