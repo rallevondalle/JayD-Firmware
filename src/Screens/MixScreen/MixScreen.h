@@ -85,6 +85,9 @@ namespace MixScreen {
 		bool listenersActive = false;
 		bool hotSwapInProgress = false;
 		bool justCompletedHotSwap = false;
+		
+		// Smart resume timing
+		uint32_t lastSmartSeekTime[2] = {0, 0}; // Track last seek time for each channel
 
 		void startBigVu();
 		void stopBigVu();

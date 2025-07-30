@@ -668,17 +668,38 @@ void MixScreen::MixScreen::loop(uint micros){
 		update = true;
 	}
 
+	// Update seek bar positions, but respect smart resume timing
 	if(system && f1 && f1.size() > 0 && system->getElapsed(0) != leftSeekBar->getCurrentDuration()){
 		if(seekTime == 0 || seekChannel != 0){
-			leftSeekBar->setCurrentDuration(system->getElapsed(0));
-			update = true;
+			// Don't overwrite position immediately after smart seek (give decoder time to catch up)
+			uint32_t timeSinceSmartSeek = millis() - lastSmartSeekTime[0];
+			if(lastSmartSeekTime[0] == 0 || timeSinceSmartSeek > 3000){ // 3 second grace period
+				leftSeekBar->setCurrentDuration(system->getElapsed(0));
+				update = true;
+			}else{
+				// During grace period, log what's happening
+				if(timeSinceSmartSeek % 1000 < 50){ // Log once per second during grace period
+					Serial.printf("Grace period: Channel 0 - System elapsed: %d, Seek bar: %d, Time since seek: %d ms\n", 
+						system->getElapsed(0), leftSeekBar->getCurrentDuration(), timeSinceSmartSeek);
+				}
+			}
 		}
 	}
 
 	if(system && f2 && f2.size() > 0 && system->getElapsed(1) != rightSeekBar->getCurrentDuration()){
 		if(seekTime == 0 || seekChannel != 1){
-			rightSeekBar->setCurrentDuration(system->getElapsed(1));
-			update = true;
+			// Don't overwrite position immediately after smart seek (give decoder time to catch up)
+			uint32_t timeSinceSmartSeek = millis() - lastSmartSeekTime[1];
+			if(lastSmartSeekTime[1] == 0 || timeSinceSmartSeek > 3000){ // 3 second grace period
+				rightSeekBar->setCurrentDuration(system->getElapsed(1));
+				update = true;
+			}else{
+				// During grace period, log what's happening
+				if(timeSinceSmartSeek % 1000 < 50){ // Log once per second during grace period
+					Serial.printf("Grace period: Channel 1 - System elapsed: %d, Seek bar: %d, Time since seek: %d ms\n", 
+						system->getElapsed(1), rightSeekBar->getCurrentDuration(), timeSinceSmartSeek);
+				}
+			}
 		}
 	}
 
@@ -799,6 +820,7 @@ void MixScreen::MixScreen::btn(uint8_t i){
 			if(currentPos > 0){
 				Serial.printf("Smart resume: Seeking to position %d before playing\n", currentPos);
 				system->seekChannel(i, currentPos);
+				lastSmartSeekTime[i] = millis(); // Track when we did the smart seek
 				delay(150); // Allow seek to complete before resume
 			}
 			system->resumeChannel(i);
