@@ -817,11 +817,17 @@ void MixScreen::MixScreen::btn(uint8_t i){
 		}else{
 			// SMART RESUME: If channel is paused and has a position > 0, seek first
 			uint32_t currentPos = bar->getCurrentDuration();
+			Serial.printf("Resume check: Channel %d current position = %d\n", i, currentPos);
+			
 			if(currentPos > 0){
 				Serial.printf("Smart resume: Seeking to position %d before playing\n", currentPos);
 				system->seekChannel(i, currentPos);
-				lastSmartSeekTime[i] = millis(); // Track when we did the smart seek
+				lastSmartSeekTime[i] = millis(); // Update to track the actual seek time
 				delay(150); // Allow seek to complete before resume
+			}else{
+				Serial.printf("No smart resume needed: Channel %d starting from position 0\n", i);
+				// If no smart resume needed, clear any protection
+				lastSmartSeekTime[i] = 0;
 			}
 			system->resumeChannel(i);
 		}
@@ -1106,7 +1112,10 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 			// Preserve the position of the continuing track
 			if(f2 && f2.size() > 0 && channel1Position > 0){
 				rightSeekBar->setCurrentDuration(channel1Position);
+				// CRITICAL: Prevent loop from overwriting this preserved position
+				lastSmartSeekTime[1] = millis() - 1; // Set to recent time to activate protection
 				Serial.printf("RIGHT deck position preserved: %d seconds (press play to continue)\n", channel1Position);
+				Serial.printf("Verification: rightSeekBar now shows %d seconds\n", rightSeekBar->getCurrentDuration());
 			}
 		}else{
 			// New track loaded to channel 1 (right deck)  
@@ -1118,7 +1127,10 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 			// Preserve the position of the continuing track
 			if(f1 && f1.size() > 0 && channel0Position > 0){
 				leftSeekBar->setCurrentDuration(channel0Position);
+				// CRITICAL: Prevent loop from overwriting this preserved position
+				lastSmartSeekTime[0] = millis() - 1; // Set to recent time to activate protection
 				Serial.printf("LEFT deck position preserved: %d seconds (press play to continue)\n", channel0Position);
+				Serial.printf("Verification: leftSeekBar now shows %d seconds\n", leftSeekBar->getCurrentDuration());
 			}
 		}
 		
