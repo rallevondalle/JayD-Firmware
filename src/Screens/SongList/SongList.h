@@ -65,6 +65,9 @@ namespace SongList {
 
 		static const uint16_t checkInterval = 500;
 		static const char* indexFileName;
+
+	public:
+		static void forceScanSD();
 	};
 }
 #endif //JAYD_FIRMWARE_SONGLIST_H

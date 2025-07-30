@@ -11,11 +11,13 @@
 #include "src/Screens/IntroScreen/IntroScreen.h"
 #include "src/Screens/MixScreen/MixScreen.h"
 #include "src/Screens/InputTest/InputTest.h"
+#include "src/Screens/SongList/SongList.h"
 
 bool checkJig(){
 	pinMode(PIN_BL, INPUT_PULLUP);
 	return digitalRead(PIN_BL) == LOW;
 }
+
 
 void launch(){
 	// Skip intro screen - go directly to MixScreen
