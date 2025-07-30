@@ -352,7 +352,11 @@ void MixScreen::MixScreen::start(){
 	
 	// SAFETY: Don't create system if one already exists
 	if(system){
-		Serial.println("WARNING: MixSystem already exists - skipping creation");
+		Serial.println("INFO: MixSystem already exists - using existing system");
+		// If system exists and we just completed hot-swap, preserve states
+		if(justCompletedHotSwap){
+			Serial.println("Hot-swap system already configured - skipping start sequence");
+		}
 	}else if(f1 || f2){
 		Serial.println("Creating MixSystem...");
 		
@@ -371,37 +375,44 @@ void MixScreen::MixScreen::start(){
 	}
 
 	if(system){
-		Serial.println("Configuring MixSystem with power management...");
-		
-		// Spread out power-hungry operations with delays
-		system->setVolume(0, InputJayD::getInstance()->getPotValue(POT_L));
-		delay(10);
-		system->setVolume(1, InputJayD::getInstance()->getPotValue(POT_R));
-		delay(10);
+		// Skip configuration if we just completed hot-swap (already configured)
+		if(justCompletedHotSwap){
+			Serial.println("Skipping MixSystem configuration - already done in hot-swap");
+		}else{
+			Serial.println("Configuring MixSystem with power management...");
+			
+			// Spread out power-hungry operations with delays
+			system->setVolume(0, InputJayD::getInstance()->getPotValue(POT_L));
+			delay(10);
+			system->setVolume(1, InputJayD::getInstance()->getPotValue(POT_R));
+			delay(10);
 
-		system->setChannelInfo(0, leftVu.getInfoGenerator());
-		delay(10);
-		system->setChannelInfo(1, rightVu.getInfoGenerator());
-		delay(10);
-		system->setChannelInfo(2, midVu.getInfoGenerator());
-		delay(10);
-		
-		if(bigVuStarted){
-			startBigVu();
+			system->setChannelInfo(0, leftVu.getInfoGenerator());
+			delay(10);
+			system->setChannelInfo(1, rightVu.getInfoGenerator());
+			delay(10);
+			system->setChannelInfo(2, midVu.getInfoGenerator());
+			delay(10);
+			
+			if(bigVuStarted){
+				startBigVu();
+				delay(10);
+			}
+
+			uint8_t potMidVal = InputJayD::getInstance()->getPotValue(POT_MID);
+			system->setMix(potMidVal);
+			delay(10);
+			matrixManager.fillMatrixMid(potMidVal);
+			matrixManager.matrixMid.push();
 			delay(10);
 		}
 
-		uint8_t potMidVal = InputJayD::getInstance()->getPotValue(POT_MID);
-		system->setMix(potMidVal);
-		delay(10);
-		matrixManager.fillMatrixMid(potMidVal);
-		matrixManager.matrixMid.push();
-		delay(10);
-
-		// Set durations and playing states based on available tracks
+		// Always update seek bar durations (but preserve playing states for hot-swap)
 		if(f1){
 			leftSeekBar->setTotalDuration(system->getDuration(0));
-			leftSeekBar->setPlaying(false); // Start paused - user controls playback
+			if(!justCompletedHotSwap){
+				leftSeekBar->setPlaying(false); // Start paused - user controls playback
+			}
 		}else{
 			leftSeekBar->setTotalDuration(0);
 			leftSeekBar->setPlaying(false);
@@ -409,7 +420,9 @@ void MixScreen::MixScreen::start(){
 		
 		if(f2){
 			rightSeekBar->setTotalDuration(system->getDuration(1));
-			rightSeekBar->setPlaying(false); // Start paused - user controls playback
+			if(!justCompletedHotSwap){
+				rightSeekBar->setPlaying(false); // Start paused - user controls playback
+			}
 		}else{
 			rightSeekBar->setTotalDuration(0);
 			rightSeekBar->setPlaying(false);
@@ -440,26 +453,33 @@ void MixScreen::MixScreen::start(){
 
 
 	if(system){
-		Serial.println("Starting MixSystem with power management...");
-		
-		// POWER MANAGEMENT: Delay before starting to prevent power spike
-		delay(50);
-		system->start();
-		
-		// Allow system to stabilize after start
-		delay(50);
-		
-		// Ensure both channels start paused - user controls when to play
-		if(f1){
-			system->pauseChannel(0);
-			delay(10);
+		// Check if we just completed a hot-swap - if so, system is already running
+		if(justCompletedHotSwap){
+			Serial.println("Hot-swap detected - system already running, preserving states");
+			justCompletedHotSwap = false; // Reset the flag
+		}else{
+			Serial.println("Starting MixSystem with power management...");
+			
+			// POWER MANAGEMENT: Delay before starting to prevent power spike
+			delay(50);
+			system->start();
+			
+			// Allow system to stabilize after start
+			delay(50);
+			
+			Serial.println("Normal start - pausing all channels");
+			// Ensure both channels start paused - user controls when to play
+			if(f1){
+				system->pauseChannel(0);
+				delay(10);
+			}
+			if(f2){
+				system->pauseChannel(1);
+				delay(10);
+			}
 		}
-		if(f2){
-			system->pauseChannel(1);
-			delay(10);
-		}
 		
-		Serial.println("MixSystem started and channels paused");
+		Serial.println("MixSystem ready");
 	}
 
 	// Add listeners - handle the case where VU listeners might still be active
@@ -1021,6 +1041,8 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		// Add small delay to let system stabilize before state restoration
 		delay(100);
 		
+		Serial.println("System started, beginning state restoration...");
+		
 		// SMART PLAYBACK RESTORATION: Only the non-selected channel keeps playing
 		// The channel getting the new track starts paused (like professional CDJs)
 		
@@ -1033,14 +1055,17 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 			// Channel 1 (f2) keeps its previous state
 			if(f2 && f2.size() > 0){
 				if(channel1WasPlaying){
-					Serial.println("Restoring channel 1 to PLAYING state");
+					Serial.printf("Restoring channel 1 to PLAYING state at position %d\n", channel1Position);
 					// Seek to previous position and resume
+					Serial.printf("Seeking channel 1 to position %d...\n", channel1Position);
 					system->seekChannel(1, channel1Position);
-					delay(50); // Allow seek to complete
+					delay(100); // Allow seek to complete
+					Serial.println("Resuming channel 1 playback...");
 					system->resumeChannel(1);
 					rightSeekBar->setPlaying(true);
 					rightSeekBar->setCurrentDuration(channel1Position);
-					Serial.printf("Channel 1 restored: PLAYING at %d\n", channel1Position);
+					Serial.printf("Channel 1 restored: PLAYING at %d (seekbar: %d)\n", 
+						channel1Position, rightSeekBar->getCurrentDuration());
 				}else{
 					Serial.println("Keeping channel 1 PAUSED");
 					system->pauseChannel(1);
@@ -1056,14 +1081,17 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 			// Channel 0 (f1) keeps its previous state
 			if(f1 && f1.size() > 0){
 				if(channel0WasPlaying){
-					Serial.println("Restoring channel 0 to PLAYING state");
+					Serial.printf("Restoring channel 0 to PLAYING state at position %d\n", channel0Position);
 					// Seek to previous position and resume
+					Serial.printf("Seeking channel 0 to position %d...\n", channel0Position);
 					system->seekChannel(0, channel0Position);
-					delay(50); // Allow seek to complete
+					delay(100); // Allow seek to complete
+					Serial.println("Resuming channel 0 playback...");
 					system->resumeChannel(0);
 					leftSeekBar->setPlaying(true);
 					leftSeekBar->setCurrentDuration(channel0Position);
-					Serial.printf("Channel 0 restored: PLAYING at %d\n", channel0Position);
+					Serial.printf("Channel 0 restored: PLAYING at %d (seekbar: %d)\n", 
+						channel0Position, leftSeekBar->getCurrentDuration());
 				}else{
 					Serial.println("Keeping channel 0 PAUSED");
 					system->pauseChannel(0);
@@ -1075,8 +1103,9 @@ void MixScreen::MixScreen::hotSwapTrack(uint8_t deck, fs::File newFile){
 		Serial.printf("MixSystem updated successfully (new: %p)\n", system);
 	}
 	
-	// Reset audio preservation flag
+	// Reset audio preservation flag and set hot-swap completion flag
 	keepAudioOnStop = false;
+	justCompletedHotSwap = true;
 	
 	Serial.println("=== HOT-SWAP COMPLETE ===");
 }

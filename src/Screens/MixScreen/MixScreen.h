@@ -84,6 +84,7 @@ namespace MixScreen {
 		bool keepAudioOnStop = false;
 		bool listenersActive = false;
 		bool hotSwapInProgress = false;
+		bool justCompletedHotSwap = false;
 
 		void startBigVu();
 		void stopBigVu();
