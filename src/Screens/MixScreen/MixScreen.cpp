@@ -5,6 +5,7 @@
 #include <FS/CompressedFile.h>
 #include "MixScreen.h"
 #include "../SongList/SongList.h"
+#include "../MainMenu/MainMenu.h"
 #include "../TextInputScreen/TextInputScreen.h"
 #include "../../Fonts.h"
 
@@ -854,14 +855,29 @@ void MixScreen::MixScreen::encTwoBot(){
 }
 
 void MixScreen::MixScreen::encTwoTop(){
-	Serial.println("=== DUAL ENCODER MENU ACTIVATED ===");
+	Serial.println("=== DUAL ENCODER MENU ACTIVATED (MixScreen) ===");
+	Serial.println("Dual encoder menu temporarily disabled - will implement later");
 	
-	// Create a simple selection menu
-	// For now, just go to main menu where user can select Playback, DJ (MixScreen), or Settings
-	// TODO: Could implement a custom popup menu here in the future
+	// TODO: Implement dual encoder menu when context switching issues are resolved
+	// The current implementation causes crashes due to context cleanup issues
 	
-	Serial.println("Switching to main menu for mode selection...");
-	pop(); // This takes us back to MainMenu where user can choose Playback/DJ/Settings
+	/*
+	// Store display reference before stopping
+	Display& display = *getScreen().getDisplay();
+	
+	// Stop the current context properly
+	stop();
+	
+	// Create and launch MainMenu
+	MainMenu::MainMenu* mainMenu = new MainMenu::MainMenu(display);
+	mainMenu->unpack();
+	mainMenu->start();
+	
+	Serial.println("MainMenu created and started successfully");
+	
+	// Delete this context
+	delete this;
+	*/
 }
 
 void MixScreen::MixScreen::btnCombination(){

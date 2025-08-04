@@ -3,6 +3,7 @@
 #include <JayD.h>
 #include <Loop/LoopManager.h>
 #include "Playback.h"
+#include "../MainMenu/MainMenu.h"
 #include <SPIFFS.h>
 #include <FS/CompressedFile.h>
 
@@ -226,10 +227,32 @@ void Playback::Playback::enc(uint8_t id, int8_t value) {
 
 void Playback::Playback::encTwoTop() {
 	Serial.println("=== DUAL ENCODER MENU ACTIVATED (Playback) ===");
-	Serial.println("Switching to main menu for mode selection...");
+	Serial.println("Dual encoder menu temporarily disabled - will implement later");
 	
-	// Go to main menu for mode selection (Playback/DJ/Settings)
-	if(parent != nullptr){
-		pop();
+	// TODO: Implement dual encoder menu when context switching issues are resolved
+	// The current implementation causes crashes due to context cleanup issues
+	
+	/*
+	// Store display reference before stopping
+	Display& display = *getScreen().getDisplay();
+	
+	// Stop the current context properly
+	stop();
+	
+	// Clean up parent if it exists
+	if(parent){
+		parent->stop();
+		delete parent;
 	}
+	
+	// Create and launch MainMenu
+	MainMenu::MainMenu* mainMenu = new MainMenu::MainMenu(display);
+	mainMenu->unpack();
+	mainMenu->start();
+	
+	Serial.println("MainMenu created and started successfully");
+	
+	// Delete this context
+	delete this;
+	*/
 }

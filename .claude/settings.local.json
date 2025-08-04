@@ -10,7 +10,11 @@
       "Bash(git checkout:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(git restore:*)",
+      "Bash(rm:*)",
+      "Bash(gh:*)",
+      "Bash(git push:*)"
     ],
     "deny": []
   }
