@@ -11,6 +11,7 @@ This firmware provides complete DJ functionality including:
 - Track browsing with enhanced search and sorting
 - Position-accurate playback restoration
 - Smart audio continuity during media changes
+- This firmware bypasses the first loading screen and intro graphics and goes straight into DJ mode.
 
 ## Features
 
