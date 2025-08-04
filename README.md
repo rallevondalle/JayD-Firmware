@@ -1,11 +1,24 @@
-# Jay-D Firmware
-> The repository for the core firmware that comes preloaded on every Jay-D.
+# JAY-D Firmware
 
+Core firmware for the JAY-D portable DJ mixing device by CircuitMess.
 
-With Jay-D, you’ll learn how microcomputers and other electronic components are used for sound production and get a bit closer to becoming a DJ superstar. You can learn more [here](https://circuitmess.com/jay-d/).
+## Overview
 
-Jay-D is also a part of [CircuitMess STEM Box](https://igg.me/at/stem-box/x#/) - a series of fun electronic kits to help children and adults understand the basics of technologies everybody's talking about.
+This firmware provides complete DJ functionality including:
+- Dual-channel audio mixing with crossfader
+- SD card-based music playback with hot-swap support
+- Real-time audio effects and filtering
+- Track browsing with enhanced search and sorting
+- Position-accurate playback restoration
+- Smart audio continuity during media changes
 
+## Recent Improvements
+
+- **Hot-swap System**: Stable SD card hot-swapping with automatic re-indexing
+- **Enhanced UI**: Improved song list navigation with filtering and sorting options
+- **Audio Continuity**: Better playback restoration and position preservation
+- **Manual Scanning**: Option to manually trigger SD card scans for better control
+- **Performance**: Optimized song indexing and reduced audio dropouts
 
 ![](https://circuitmess.com/wp-content/uploads/2021/05/jayd-nobg-resized-min.png)
 
