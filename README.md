@@ -12,13 +12,28 @@ This firmware provides complete DJ functionality including:
 - Position-accurate playback restoration
 - Smart audio continuity during media changes
 
+## Features
+
+### Audio Effects
+Each player has three effect slots:
+- **Effect 1**: Speed (default)
+- **Effect 2**: High pass filter (default)
+- **Effect 3**: User-selectable
+
+### Track Management
+- **Smart Indexing**: AAC files are scanned once and stored as a persistent list on device
+- **Browse While Playing**: Continue playback while browsing tracks without interruption
+- **Circular Navigation**: Song list scrolls seamlessly from beginning to end and vice versa
+- **Manual Updates**: Refresh track list via last entry in song list menu
+
 ## Recent Improvements
 
+- **Optimized Loading**: Eliminated repeated SD card scanning for faster track selection
+- **Persistent Library**: Track list maintained in device memory for instant access
+- **Enhanced Navigation**: Circular scrolling for seamless song list browsing
 - **Hot-swap System**: Stable SD card hot-swapping with automatic re-indexing
-- **Enhanced UI**: Improved song list navigation with filtering and sorting options
 - **Audio Continuity**: Better playback restoration and position preservation
-- **Manual Scanning**: Option to manually trigger SD card scans for better control
-- **Performance**: Optimized song indexing and reduced audio dropouts
+- **Performance**: Reduced audio dropouts and improved responsiveness
 
 ![](https://circuitmess.com/wp-content/uploads/2021/05/jayd-nobg-resized-min.png)
 
